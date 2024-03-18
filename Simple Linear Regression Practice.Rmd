@@ -1,0 +1,123 @@
+---
+title: "Simple Linear Regression Practice"
+author: "Alexandra Boville"
+date: "2024-03-18"
+output: html_document
+---
+
+# Practice Simple Linear Regression 
+
+
+## Load Libraries
+```{r}
+library(tidyverse)
+library(skimr)
+library(ggplot2)
+library(broom)
+```
+
+
+## Load in Street et al. 2017 dataset
+```{r}
+f <- "https://raw.githubusercontent.com/difiore/ada-2024-datasets/main/Street_et_al_2017.csv"
+
+d <- read_csv(f, col_names = TRUE)
+
+head(d)
+```
+
+## Some Quick Exploratory Data Analysis
+```{r}
+skim(d, where(is.numeric))
+
+summary(d)
+```
+
+## Step 2: Plotting Data
+Plot brain size (ECV) as a function of social group size (Group_size), longevity (Longevity), juvenile period length (Weaning), and reproductive lifespan (Repro_lifespan)
+```{r}
+p1 <- ggplot(data = d, aes(x = Longevity, y = ECV), na.rm = TRUE) + geom_point()
+p2 <- ggplot(data = d, aes(x = Weaning, y = ECV),  na.rm = TRUE) + geom_point()
+p3 <- ggplot(data = d, aes(x = Group_size, y = ECV),  na.rm = TRUE) + geom_point()
+p4 <- ggplot(data = d, aes(x = Repro_lifespan, y = ECV), na.rm = TRUE) + geom_point()
+
+p1
+p2
+p3 
+p4
+```
+## Step 3: Derive by Hand regression coeficcients for ECV as a function of Group Size 
+```{r}
+s <- d %>% 
+  filter(!is.na(Group_size) & !is.na(ECV))
+
+(beta1 <- cov(s$ECV, s$Group_size)/var(s$Group_size))
+
+(beta0 <- mean(s$ECV) - beta1 * mean(s$Group_size))
+```
+
+# Step 4: Compare Results from Step 3 with lm()
+
+```{r}
+m <- lm(ECV ~ Group_size, data = d) #automatically drops missing data
+m
+```
+The values of the regression coefficienct match! 
+
+## Step 5: Repeat Step above for Each Taxonomic Group
+
+creating new variables for each taxonomic group
+```{r}
+c <- d %>% 
+  filter(Taxonomic_group == "Catarrhini") %>% 
+  filter(!is.na(Group_size) & !is.na(ECV))
+
+P <- d %>% 
+  filter(Taxonomic_group == "Platyrrhini") %>% 
+  filter(!is.na(Group_size) & !is.na(ECV))
+
+S <- d %>% 
+  filter(Taxonomic_group == "Strepsirhini") %>% 
+  filter(!is.na(Group_size) & !is.na(ECV))
+```
+
+Determining regression coefficients 
+```{r}
+#calculating regression coefficients for Catarrhini
+(beta1 <- cov(c$ECV, c$Group_size)/var(c$Group_size))
+(beta0 <- mean(c$ECV) - beta1 * mean(c$Group_size))
+
+#calculating regression coefficients for Platyrrhini
+(beta1 <- cov(P$ECV, P$Group_size)/var(P$Group_size))
+(beta0 <- mean(P$ECV) - beta1 * mean(P$Group_size))
+
+#calculating regression coefficients for Strepsirhini
+(beta1 <- cov(S$ECV, S$Group_size)/var(S$Group_size))
+(beta0 <- mean(S$ECV) - beta1 * mean(S$Group_size))
+```
+The regression coefficients differ for each taxonomic group, mostly in the beta0 value (intercept). To fully confirm the degree of difference it would be beneficial to determine the standard error and if these coefficents are statistically significant. 
+
+## Step 6:Calculating the standard error for the slope coefficient, the 95% CI, and the p value associated with this coefficient 
+Determining SE, 95% CI, and p-value by hand
+```{r}
+n <- length(beta1)
+# Standard Error of slope coefficient
+(s_b1 <- sd(beta1))
+(se_b1 <- s_b1/sqrt(n))
+
+```
+
+Determing SE, 95% CI and p-value by using lm()
+```{r}
+m_c <- lm(ECV ~ Group_size, data = c) 
+m_P <- lm(ECV ~ Group_size, data = P) 
+m_S <- lm(ECV ~ Group_size, data = S) 
+
+tidy(m_c)
+tidy(m_P)
+tidy(m_S)
+```
+
+
+
+
