@@ -14,6 +14,7 @@ library(tidyverse)
 library(skimr)
 library(ggplot2)
 library(broom)
+library(infer)
 ```
 
 
@@ -84,27 +85,66 @@ S <- d %>%
 Determining regression coefficients 
 ```{r}
 #calculating regression coefficients for Catarrhini
-(beta1 <- cov(c$ECV, c$Group_size)/var(c$Group_size))
-(beta0 <- mean(c$ECV) - beta1 * mean(c$Group_size))
+(beta1_c <- cov(c$ECV, c$Group_size)/var(c$Group_size))
+(beta0_c <- mean(c$ECV) - beta1 * mean(c$Group_size))
 
 #calculating regression coefficients for Platyrrhini
-(beta1 <- cov(P$ECV, P$Group_size)/var(P$Group_size))
-(beta0 <- mean(P$ECV) - beta1 * mean(P$Group_size))
+(beta1_P <- cov(P$ECV, P$Group_size)/var(P$Group_size))
+(beta0_P <- mean(P$ECV) - beta1 * mean(P$Group_size))
 
 #calculating regression coefficients for Strepsirhini
-(beta1 <- cov(S$ECV, S$Group_size)/var(S$Group_size))
-(beta0 <- mean(S$ECV) - beta1 * mean(S$Group_size))
+(beta1_S <- cov(S$ECV, S$Group_size)/var(S$Group_size))
+(beta0_S <- mean(S$ECV) - beta1 * mean(S$Group_size))
 ```
 The regression coefficients differ for each taxonomic group, mostly in the beta0 value (intercept). To fully confirm the degree of difference it would be beneficial to determine the standard error and if these coefficents are statistically significant. 
 
 ## Step 6:Calculating the standard error for the slope coefficient, the 95% CI, and the p value associated with this coefficient 
-Determining SE, 95% CI, and p-value by hand
+Determining SE
 ```{r}
-n <- length(beta1)
 # Standard Error of slope coefficient
-(s_b1 <- sd(beta1))
-(se_b1 <- s_b1/sqrt(n))
+df_regression <- 1  # p = 1
+(df_error <- nrow(s) - df_regression - 1 )# n - p - 1
+(df_y <- nrow(s) - df_regression)
 
+#SSE = height - predicted height
+SSE <- sum(m$residuals^2)
+SSE
+#SSR = predicted height - mean height
+SSR <- sum((m$fitted.values - mean(m$model$Group_size))^2)
+SSR
+
+(MSR <- SSR/df_regression)  # mean variance explained by the regression equation
+(MSE <- SSE/df_error)  # mean remaining variance
+
+(SSX <- sum((s$Group_size - mean(s$Group_size))^2)) # how much x variation there is
+SEbeta1 <- sqrt(MSE/SSX)
+SEbeta1
+
+```
+I'm not sure why I am getting NA's for these values... I already removed NA's from this data previously...
+
+95% CI by hand
+```{r}
+alpha <- 0.05
+m_aug <- augment(m, se_fit = TRUE)
+head(m_aug)
+
+
+m_aug <- m_aug %>% 
+  mutate(c.lwr = .fitted - qt(1 - alpha/2, nrow(m_aug) - 2) * .se.fit, c.upr = .fitted +
+    qt(1 - alpha/2, nrow(m_aug) - 2) * .se.fit)
+head(m_aug)
+
+```
+
+
+p-value by hand
+```{r}
+# fratio = the ratio of the variance explained by the regression model to the remaining, unexplained variance (MSR/MSE)
+fratio <- MSR/MSE
+fratio
+
+pf(q = fratio, df1 = 1, df2 = 153, lower.tail = FALSE)
 ```
 
 Determing SE, 95% CI and p-value by using lm()
@@ -116,8 +156,87 @@ m_S <- lm(ECV ~ Group_size, data = S)
 tidy(m_c)
 tidy(m_P)
 tidy(m_S)
+
+(CI <- confint(m, level = 1 - alpha))
+
 ```
 
+
+## Step 7: Using a Permutation Approach
+Use a permutation approach with 1000 permutations to generate a null sampling distribution for the slope coefficient.
+
+```{r}
+#Defining alpha, CI boundaries, and critical values
+alpha <- 0.05
+confidence_level <- 1 - alpha
+con_lower <- alpha/2
+con_upper <- 1 - (alpha/2)
+degrees_of_freedom <- nrow(d) - 2
+critical_value <- qt(con_upper, df = degrees_of_freedom)
+
+# original slope
+og.slope <- lm(data = d, ECV ~ Group_size) %>%
+    # tidy the model and add the CI based on the t distribution
+  tidy(conf.int = TRUE, conf.level = confidence_level) %>%
+    # or manually calculate the CI based on the t distribution
+  mutate(lower = estimate - std.error * critical_value, upper = estimate + std.error *
+    critical_value) %>%
+    filter(term == "Group_size")
+og.slope 
+
+permuted.slope <- d %>%
+  specify(ECV ~ Group_size) %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 1000, type = "permute") %>%
+  calculate(stat = "slope")
+
+head(permuted.slope) 
+
+get_ci(permuted.slope, level = 1 - alpha, type = "percentile")
+
+p.value <- permuted.slope %>% 
+  mutate(abs_stat=abs(stat)) %>%
+  summarize(estimate = mean(abs_stat >= abs(pull(og.slope, estimate)))
+  )
+p.value
+```
+## Step 8: Using Bootstrapping to Generate a CI 
+Use bootstrapping to generate a 95% CI for your estimate of the slope coefficient using both the percentile method and the theory-based method
+
+Creating Confidence Intervals
+```{r}
+boot.slope <- d %>%
+  specify(ECV ~ Group_size) %>%
+  generate(reps = 1000, type = "bootstrap") %>%
+  calculate(stat = "slope")
+
+head(boot.slope) 
+```
+
+Percentile Method
+```{r}
+CI.percentile <- get_ci(boot.slope, level = 1 - alpha, type = "percentile")
+CI.percentile
+```
+
+Theory-based Method
+```{r}
+
+boot.slope.summary <- boot.slope %>%
+  summarize(
+    estimate = mean(stat),
+    std.error = sd(stat),
+    boot.lower = quantile(stat, con_lower),
+    boot.upper = quantile(stat, con_upper)
+  )
+
+boot.slope.summary
+
+
+CI.theory <- get_ci(boot.slope, level = 1 - alpha, type = "se", point_estimate = pull(boot.slope.summary,
+    estimate))
+CI.theory
+```
 
 
 
